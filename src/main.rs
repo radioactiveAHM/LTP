@@ -40,20 +40,20 @@ async fn listen_handler(port: u16, target: String, timeout_dur:u64) {
         let target = target.to_string();
         if let Ok(stream) = tcp.accept().await {
             tokio::spawn(async move {
-                stream_handler(port, target, timeout_dur, stream.0).await;
+                if let Err(e) = stream_handler(port, target, timeout_dur, stream.0).await {
+                    println!("{}",e.to_string());
+                }
             });
         }
     }
 }
 
-async fn stream_handler(port: u16, target: String, timeout_dur:u64, mut stream: tokio::net::TcpStream) {
+async fn stream_handler(port: u16, target: String, timeout_dur:u64, mut stream: tokio::net::TcpStream) -> Result<(), Box<dyn std::error::Error>> {
     let (mut server_r, mut server_w) = stream.split();
 
     // connect to target
     // panic if failed
-    let mut target_stream = tokio::net::TcpStream::connect(format!("{target}:{port}"))
-        .await
-        .unwrap();
+    let mut target_stream = tokio::net::TcpStream::connect(format!("{target}:{port}")).await?;
     let (mut target_r, mut target_w) = target_stream.split();
 
     let mut target_stat = 0u8;
@@ -111,6 +111,7 @@ async fn stream_handler(port: u16, target: String, timeout_dur:u64, mut stream: 
             break;
         }
     }
+    Ok(())
 }
 
 enum Stats {
