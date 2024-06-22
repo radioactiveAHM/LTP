@@ -7,6 +7,8 @@ use tokio::{
     time::timeout,
 };
 
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+
 #[tokio::main]
 async fn main() {
     let conf = config::load_config();
@@ -15,11 +17,30 @@ async fn main() {
     let mut tasks = Vec::new();
     // Generate tasks
     for port in ports {
+        // IPv4
         let target = conf.target.clone();
         let timeout_dur = conf.timeout.clone();
         tasks.push(tokio::spawn(async move {
-            listen_handler(port, target, timeout_dur).await;
+            listen_handler(
+                port,
+                target,
+                timeout_dur,
+                SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0,0,0,0), port))
+            ).await;
         }));
+        // IPv6
+        if conf.ipv6 {
+            let target = conf.target.clone();
+            let timeout_dur = conf.timeout.clone();
+            tasks.push(tokio::spawn(async move {
+                listen_handler(
+                    port,
+                    target,
+                    timeout_dur,
+                    SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1), port, 0, 0))
+                ).await;
+            }));
+        }
     }
 
     for atask in tasks {
@@ -29,9 +50,9 @@ async fn main() {
     }
 }
 
-async fn listen_handler(port: u16, target: String, timeout_dur:u64) {
+async fn listen_handler(port: u16, target: String, timeout_dur:u64, inbound: SocketAddr) {
     // panic if can't listen on the IP+Port
-    let tcp = TcpListener::bind(format!("0.0.0.0:{port}"))
+    let tcp = TcpListener::bind(inbound)
         .await
         .unwrap();
 
