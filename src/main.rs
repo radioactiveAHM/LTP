@@ -58,6 +58,19 @@ async fn main() {
                 SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0,0,0,0), port))
             ).await;
         }));
+        // IPv6
+        if conf.ipv6 {
+            let target = conf.target.clone();
+            let timeout_dur = conf.timeout.clone();
+            tasks.push(tokio::spawn(async move {
+                udp::udp_listen_handler(
+                    port,
+                    target,
+                    timeout_dur,
+                    SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1), port, 0, 0))
+                ).await;
+            }));
+        }
     }
 
     for atask in tasks {

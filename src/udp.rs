@@ -36,8 +36,16 @@ pub async fn udp_listen_handler(port: u16, target: String, timeout_dur:u64, inbo
                 let addr = addr.clone();
                 let udp = udp.clone();
                 let live = live.clone();
+                let inbound_ip_version = inbound.is_ipv4();
                 tokio::spawn(async move {
-                    let target_udp = tokio::net::UdpSocket::bind("0.0.0.0:0").await.unwrap();
+                    let target_socket_addr_v = {
+                        if inbound_ip_version {
+                            "0.0.0.0:0"
+                        } else {
+                            "[::]:0"
+                        }
+                    };
+                    let target_udp = tokio::net::UdpSocket::bind(target_socket_addr_v).await.unwrap();
                     target_udp.connect(format!("{target}:{port}")).await.unwrap();
                     loop {
                         let mut buff = [0;16384];
