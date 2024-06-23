@@ -18,5 +18,29 @@
 
 ## Built With
 
-* [![Tokio][Tokio]][Tokio-url]
 * [![Rust][Rust]][Rust-url]
+* [![Tokio][Tokio]][Tokio-url]
+
+## Build
+
+1. Clone the repository:
+    1. `git clone https://github.com/radioactiveAHM/LTP.git`
+    2. `cd LTP`
+2. Build LTP:
+    * `cargo build --release`
+3. The compiled binary will be located at `/target/release/LTP`.
+
+## Usage
+
+1. Configure `config.json`: Edit the config.json file to set up any necessary configurations for LTP.
+2. Run LTP.
+
+## License
+
+Distributed under the Apache License Version 2.0. See `LICENSE` for more information.
+
+<!-- MARKDOWN LINKS & IMAGES -->
+[Rust]: https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white
+[Rust-url]: https://www.rust-lang.org/
+[Tokio]: https://img.shields.io/badge/Tokio-000000?style=for-the-badge&logo=tokiodotrs&logoColor=white
+[Tokio-url]: https://tokio.rs/
