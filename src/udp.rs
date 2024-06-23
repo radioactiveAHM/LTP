@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
 use tokio::{sync::{mpsc::channel, Mutex}, time::timeout};
 
@@ -36,13 +36,15 @@ pub async fn udp_listen_handler(port: u16, target: String, timeout_dur:u64, inbo
                 let addr = addr.clone();
                 let udp = udp.clone();
                 let live = live.clone();
-                let inbound_ip_version = inbound.is_ipv4();
                 tokio::spawn(async move {
                     let target_socket_addr_v = {
-                        if inbound_ip_version {
+                        if std::net::Ipv4Addr::from_str(&target).is_ok() {
                             "0.0.0.0:0"
-                        } else {
+                        } else if std::net::Ipv6Addr::from_str(&target).is_ok() {
                             "[::]:0"
+                        } else {
+                            println!("Invalid target address");
+                            panic!();
                         }
                     };
                     let target_udp = tokio::net::UdpSocket::bind(target_socket_addr_v).await.unwrap();
