@@ -1,4 +1,5 @@
 mod config;
+mod udp;
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -15,7 +16,7 @@ async fn main() {
     let ports: Vec<u16> = conf.ports;
 
     let mut tasks = Vec::new();
-    // Generate tasks
+    // Generate tasks for tcp
     for port in ports {
         // IPv4
         let target = conf.target.clone();
@@ -41,6 +42,22 @@ async fn main() {
                 ).await;
             }));
         }
+    }
+
+    // Generate tasks for udp
+    let ports: Vec<u16> = conf.udp_ports;
+    for port in ports{
+        // IPv4
+        let target = conf.target.clone();
+        let timeout_dur = conf.timeout.clone();
+        tasks.push(tokio::spawn(async move {
+            udp::udp_listen_handler(
+                port,
+                target,
+                timeout_dur,
+                SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0,0,0,0), port))
+            ).await;
+        }));
     }
 
     for atask in tasks {

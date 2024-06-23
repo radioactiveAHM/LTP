@@ -6,8 +6,10 @@
     1.
 
 * Error Handling:
-    1. Target connectivity ⚠️
+    1. Target connectivity ✅
+    2. UDP Target connectivity, Connection timeout ⚠️
 
 * Features
-    1. UDP
-    2. IPv6 inbound
+    1. IPv6 inbound ✅
+    2. UDP ✅
+    3. UDP IPv6

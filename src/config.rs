@@ -1,6 +1,7 @@
 #[derive(serde::Deserialize)]
 pub struct Configuration {
     pub ports: Vec<u16>,
+    pub udp_ports: Vec<u16>,
     pub target: String,
     pub timeout: u64,
     pub ipv6: bool,

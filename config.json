@@ -1,5 +1,6 @@
 {
-	"ports": [80, 443],
+	"ports": [],
+	"udp_ports": [45632],
 	"target": "190.93.246.22",
 	"timeout": 30,
 	"ipv6": true
