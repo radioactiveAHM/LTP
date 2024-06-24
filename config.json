@@ -1,7 +1,7 @@
 {
-	"ports": [],
-	"udp_ports": [45632],
-	"target": "190.93.246.22",
+	"ports": [80,443],
+	"udp_ports": [443],
+	"target": "141.101.120.173",
 	"timeout": 30,
 	"ipv6": true
 }

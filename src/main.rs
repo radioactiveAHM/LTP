@@ -109,21 +109,21 @@ async fn stream_handler(port: u16, target: String, timeout_dur:u64, mut stream: 
 
     let mut target_stat = 0u8;
     let mut server_stat = 0u8;
+    let mut buff1 = [0; 8196];
+    let mut buff2 = [0; 8196];
     loop {
         if target_stat == 5 || server_stat == 5 {
             // target or server closed conn
             break;
         }
         let to = timeout(std::time::Duration::from_secs(timeout_dur), async {
-            let mut buff1 = [0; 8196];
-            let mut buff2 = [0; 8196];
             let stat = select! {
                 buff_len = server_r.read(&mut buff1) => {
                     if let Ok(size) = buff_len {
                         target_stat = 0;
                         (Stats::Server,target_w.write(&buff1[..size]).await)
                     } else {
-                        (Stats::Server,Err(std::io::Error::from(std::io::ErrorKind::InvalidData)))
+                        (Stats::Server,Err(std::io::Error::from(std::io::ErrorKind::ConnectionAborted)))
                     }
                 }
                 buff_len = target_r.read(&mut buff2) => {
@@ -131,7 +131,7 @@ async fn stream_handler(port: u16, target: String, timeout_dur:u64, mut stream: 
                         server_stat = 0;
                         (Stats::Target,server_w.write(&buff2[..size]).await)
                     }else {
-                        (Stats::Target,Err(std::io::Error::from(std::io::ErrorKind::InvalidData)))
+                        (Stats::Target,Err(std::io::Error::from(std::io::ErrorKind::ConnectionAborted)))
                     }
                 }
             };

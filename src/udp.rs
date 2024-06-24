@@ -12,8 +12,8 @@ pub async fn udp_listen_handler(port: u16, target: String, timeout_dur:u64, inbo
     // list of live connections
     let live: Arc<Mutex<Vec<(tokio::sync::mpsc::Sender<Vec<u8>>, SocketAddr)>>> = Arc::new(Mutex::new(Vec::with_capacity(5)));
     // accept udp datagram
+    let mut buff = [0;8196];
     loop {
-        let mut buff = [0;16384];
         if let Ok((datagram_len, addr)) = udp.recv_from(&mut buff).await {
             // check if addr is in live list and get it.
             let ch = live.lock().await.iter().find_map(|conn|{
@@ -26,7 +26,7 @@ pub async fn udp_listen_handler(port: u16, target: String, timeout_dur:u64, inbo
 
             // if addr is in live
             if ch.is_some(){
-                ch.unwrap().send(buff[..datagram_len].to_vec()).await.unwrap_or(());
+                ch.unwrap().send(buff[..datagram_len].to_owned()).await.unwrap_or(());
             }else {                
                 // if addr is not in live
                 let (ch_snd, mut ch_rcv) = channel(1);
@@ -49,8 +49,8 @@ pub async fn udp_listen_handler(port: u16, target: String, timeout_dur:u64, inbo
                     };
                     let target_udp = tokio::net::UdpSocket::bind(target_socket_addr_v).await.unwrap();
                     target_udp.connect(format!("{target}:{port}")).await.unwrap();
+                    let mut buff = [0;8196];
                     loop {
-                        let mut buff = [0;16384];
                         let tm = timeout(std::time::Duration::from_secs(timeout_dur), async {
                             return tokio::select! {
                                 ch_inbound = ch_rcv.recv() => {
@@ -89,7 +89,7 @@ pub async fn udp_listen_handler(port: u16, target: String, timeout_dur:u64, inbo
                     }
                 });
     
-                ch_snd.send(buff[..datagram_len].to_vec()).await.unwrap_or(());
+                ch_snd.send(buff[..datagram_len].to_owned()).await.unwrap_or(());
             }
         }
     }
