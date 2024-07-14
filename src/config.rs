@@ -5,6 +5,7 @@ pub struct Configuration {
     pub target: String,
     pub timeout: u64,
     pub ipv6: bool,
+    pub localhost: bool
 }
 
 pub fn load_config() -> Configuration {

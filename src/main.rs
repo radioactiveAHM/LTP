@@ -15,6 +15,20 @@ async fn main() {
     let conf = config::load_config();
     let ports: Vec<u16> = conf.ports;
 
+    let ip = {
+        if conf.localhost{
+            (
+                Ipv4Addr::new(127,0,0,1),
+                Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)
+            )
+        }else {
+            (
+                Ipv4Addr::new(0,0,0,0),
+                Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)
+            )
+        }
+    };
+
     let mut tasks = Vec::new();
     // Generate tasks for tcp
     for port in ports {
@@ -26,7 +40,7 @@ async fn main() {
                 port,
                 target,
                 timeout_dur,
-                SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0,0,0,0), port))
+                SocketAddr::V4(SocketAddrV4::new(ip.0, port))
             ).await;
         }));
         // IPv6
@@ -38,7 +52,7 @@ async fn main() {
                     port,
                     target,
                     timeout_dur,
-                    SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1), port, 0, 0))
+                    SocketAddr::V6(SocketAddrV6::new(ip.1, port, 0, 0))
                 ).await;
             }));
         }

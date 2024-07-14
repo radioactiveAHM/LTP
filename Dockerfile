@@ -65,7 +65,7 @@ USER appuser
 COPY --from=build /bin/server /bin/
 
 # Copy the config file.
-COPY /config.json /bin/
+COPY /config.json /
 
 # Expose the port that the application listens on.
 EXPOSE 80
