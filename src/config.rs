@@ -1,11 +1,13 @@
+use std::net::SocketAddr;
+
 #[derive(serde::Deserialize)]
 pub struct Configuration {
     pub ports: Vec<u16>,
     pub udp_ports: Vec<u16>,
-    pub target: String,
+    pub target: SocketAddr,
     pub timeout: u64,
     pub ipv6: bool,
-    pub localhost: bool
+    pub localhost: bool,
 }
 
 pub fn load_config() -> Configuration {

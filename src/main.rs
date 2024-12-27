@@ -16,15 +16,15 @@ async fn main() {
     let ports: Vec<u16> = conf.ports;
 
     let ip = {
-        if conf.localhost{
+        if conf.localhost {
             (
-                Ipv4Addr::new(127,0,0,1),
-                Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)
+                Ipv4Addr::new(127, 0, 0, 1),
+                Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1),
             )
-        }else {
+        } else {
             (
-                Ipv4Addr::new(0,0,0,0),
-                Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)
+                Ipv4Addr::new(0, 0, 0, 0),
+                Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0),
             )
         }
     };
@@ -33,56 +33,52 @@ async fn main() {
     // Generate tasks for tcp
     for port in ports {
         // IPv4
-        let target = conf.target.clone();
-        let timeout_dur = conf.timeout.clone();
         tasks.push(tokio::spawn(async move {
             listen_handler(
                 port,
-                target,
-                timeout_dur,
-                SocketAddr::V4(SocketAddrV4::new(ip.0, port))
-            ).await;
+                conf.target,
+                conf.timeout,
+                SocketAddr::V4(SocketAddrV4::new(ip.0, port)),
+            )
+            .await;
         }));
         // IPv6
         if conf.ipv6 {
-            let target = conf.target.clone();
-            let timeout_dur = conf.timeout.clone();
             tasks.push(tokio::spawn(async move {
                 listen_handler(
                     port,
-                    target,
-                    timeout_dur,
-                    SocketAddr::V6(SocketAddrV6::new(ip.1, port, 0, 0))
-                ).await;
+                    conf.target,
+                    conf.timeout,
+                    SocketAddr::V6(SocketAddrV6::new(ip.1, port, 0, 0)),
+                )
+                .await;
             }));
         }
     }
 
     // Generate tasks for udp
     let ports: Vec<u16> = conf.udp_ports;
-    for port in ports{
+    for port in ports {
         // IPv4
-        let target = conf.target.clone();
-        let timeout_dur = conf.timeout.clone();
         tasks.push(tokio::spawn(async move {
             udp::udp_listen_handler(
                 port,
-                target,
-                timeout_dur,
-                SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0,0,0,0), port))
-            ).await;
+                conf.target,
+                conf.timeout,
+                SocketAddr::V4(SocketAddrV4::new(ip.0, port)),
+            )
+            .await;
         }));
         // IPv6
         if conf.ipv6 {
-            let target = conf.target.clone();
-            let timeout_dur = conf.timeout.clone();
             tasks.push(tokio::spawn(async move {
                 udp::udp_listen_handler(
                     port,
-                    target,
-                    timeout_dur,
-                    SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1), port, 0, 0))
-                ).await;
+                    conf.target,
+                    conf.timeout,
+                    SocketAddr::V6(SocketAddrV6::new(ip.1, port, 0, 0)),
+                )
+                .await;
             }));
         }
     }
@@ -94,30 +90,30 @@ async fn main() {
     }
 }
 
-async fn listen_handler(port: u16, target: String, timeout_dur:u64, inbound: SocketAddr) {
-    // panic if can't listen on the IP+Port
-    let tcp = TcpListener::bind(inbound)
-        .await
-        .unwrap();
+async fn listen_handler(port: u16, target: SocketAddr, timeout_dur: u64, inbound: SocketAddr) {
+    let tcp = TcpListener::bind(inbound).await.unwrap();
 
     // accept streams
     loop {
-        let target = target.to_string();
         if let Ok(stream) = tcp.accept().await {
             tokio::spawn(async move {
                 if let Err(e) = stream_handler(port, target, timeout_dur, stream.0).await {
-                    println!("{}",e.to_string());
+                    println!("{e}");
                 }
             });
         }
     }
 }
 
-async fn stream_handler(port: u16, target: String, timeout_dur:u64, mut stream: tokio::net::TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+async fn stream_handler(
+    port: u16,
+    target: SocketAddr,
+    timeout_dur: u64,
+    mut stream: tokio::net::TcpStream,
+) -> Result<(), std::io::Error> {
     let (mut server_r, mut server_w) = stream.split();
 
     // connect to target
-    // panic if failed
     let mut target_stream = tokio::net::TcpStream::connect(format!("{target}:{port}")).await?;
     let (mut target_r, mut target_w) = target_stream.split();
 
