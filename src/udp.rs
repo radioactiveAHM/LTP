@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, str::FromStr, sync::Arc};
+use std::{
+    net::{IpAddr, SocketAddr},
+    str::FromStr,
+    sync::Arc,
+};
 
 use tokio::{
     sync::{mpsc::channel, Mutex},
@@ -7,12 +11,7 @@ use tokio::{
 
 type LiveConnections = Arc<Mutex<Vec<(tokio::sync::mpsc::Sender<Vec<u8>>, SocketAddr)>>>;
 
-pub async fn udp_listen_handler(
-    port: u16,
-    target: SocketAddr,
-    timeout_dur: u64,
-    inbound: SocketAddr,
-) {
+pub async fn udp_listen_handler(port: u16, target: IpAddr, timeout_dur: u64, inbound: SocketAddr) {
     println!("listening on {}", port);
 
     let target_socket_addr_v = {
@@ -59,7 +58,7 @@ pub async fn udp_listen_handler(
                         .await
                         .unwrap();
                     target_udp
-                        .connect(format!("{target}:{port}"))
+                        .connect(SocketAddr::new(target, port))
                         .await
                         .unwrap();
                     let mut buff = [0; 8196];

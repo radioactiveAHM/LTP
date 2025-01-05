@@ -4,11 +4,10 @@ mod udp;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
-    select,
     time::timeout,
 };
 
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 #[tokio::main]
 async fn main() {
@@ -90,7 +89,7 @@ async fn main() {
     }
 }
 
-async fn listen_handler(port: u16, target: SocketAddr, timeout_dur: u64, inbound: SocketAddr) {
+async fn listen_handler(port: u16, target: IpAddr, timeout_dur: u64, inbound: SocketAddr) {
     let tcp = TcpListener::bind(inbound).await.unwrap();
 
     // accept streams
@@ -107,69 +106,64 @@ async fn listen_handler(port: u16, target: SocketAddr, timeout_dur: u64, inbound
 
 async fn stream_handler(
     port: u16,
-    target: SocketAddr,
+    target: IpAddr,
     timeout_dur: u64,
     mut stream: tokio::net::TcpStream,
 ) -> Result<(), std::io::Error> {
     let (mut server_r, mut server_w) = stream.split();
 
     // connect to target
-    let mut target_stream = tokio::net::TcpStream::connect(format!("{target}:{port}")).await?;
+    let mut target_stream = tokio::net::TcpStream::connect(SocketAddr::new(target, port)).await?;
     let (mut target_r, mut target_w) = target_stream.split();
 
     let mut target_stat = 0u8;
     let mut server_stat = 0u8;
-    let mut buff1 = [0; 8196];
-    let mut buff2 = [0; 8196];
+    let mut buff1 = [0; 1024 * 8];
+    let mut buff2 = [0; 1024 * 8];
     loop {
-        if target_stat == 5 || server_stat == 5 {
+        if target_stat == 15 || server_stat == 15 {
             // target or server closed conn
             break;
         }
-        let to = timeout(std::time::Duration::from_secs(timeout_dur), async {
-            let stat = select! {
+        let recv = timeout(std::time::Duration::from_secs(timeout_dur), async {
+            tokio::select! {
                 buff_len = server_r.read(&mut buff1) => {
-                    if let Ok(size) = buff_len {
-                        target_stat = 0;
-                        (Stats::Server,target_w.write(&buff1[..size]).await)
-                    } else {
-                        (Stats::Server,Err(std::io::Error::from(std::io::ErrorKind::ConnectionAborted)))
-                    }
+                    (Stats::Server,buff_len)
                 }
                 buff_len = target_r.read(&mut buff2) => {
-                    if let Ok(size) = buff_len {
-                        server_stat = 0;
-                        (Stats::Target,server_w.write(&buff2[..size]).await)
-                    }else {
-                        (Stats::Target,Err(std::io::Error::from(std::io::ErrorKind::ConnectionAborted)))
-                    }
-                }
-            };
-            match stat {
-                (Stats::Target, Ok(size)) => {
-                    if size == 0 {
-                        target_stat += 1;
-                    }
-                }
-                (Stats::Server, Ok(size)) => {
-                    if size == 0 {
-                        server_stat += 1;
-                    }
-                }
-                (Stats::Target, Err(e)) => {
-                    println!("{}", e);
-                    target_stat = 5;
-                }
-                (Stats::Server, Err(e)) => {
-                    println!("{}", e);
-                    server_stat = 5;
+                    (Stats::Target,buff_len)
                 }
             }
         })
         .await;
-
-        if to.is_err() {
-            break;
+        match recv {
+            Ok((Stats::Target, Ok(size))) => {
+                if size == 0 {
+                    target_stat += 1;
+                } else {
+                    let _ = server_w.write(&buff2[..size]).await?;
+                    target_stat = 0;
+                }
+            }
+            Ok((Stats::Server, Ok(size))) => {
+                if size == 0 {
+                    server_stat += 1;
+                } else {
+                    let _ = target_w.write(&buff1[..size]).await?;
+                    server_stat = 0;
+                }
+            }
+            Ok((Stats::Target, Err(e))) => {
+                println!("{e}");
+                target_stat += 1;
+            }
+            Ok((Stats::Server, Err(e))) => {
+                println!("{e}");
+                server_stat += 1;
+            }
+            _ => {
+                break;
+            }
         }
     }
     Ok(())
