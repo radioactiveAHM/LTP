@@ -3,7 +3,7 @@ pub struct Configuration {
     pub ports: Vec<u16>,
     pub udp_ports: Vec<u16>,
     pub target: std::net::IpAddr,
-    pub timeout: u64,
+    pub udptimeout: u64,
     pub ipv6: bool,
     pub localhost: bool,
 }
