@@ -2,7 +2,8 @@
 	"ports": [80],
 	"udp_ports": [],
 	"target": "199.212.90.191",
-	"udptimeout": 30,
-	"ipv6": true,
+	"udptimeout": 60,
+	"tcptimeout": 300,
+	"ipv6": false,
 	"localhost": false
 }
