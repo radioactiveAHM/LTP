@@ -1,9 +1,9 @@
 {
+	"listen_ip": "0.0.0.0",
 	"ports": [80],
 	"udp_ports": [],
 	"target": "199.212.90.191",
-	"udptimeout": 60,
+	"udptimeout": 90,
 	"tcptimeout": 300,
-	"ipv6": false,
-	"localhost": false
+	"tcp_buffer_size": null
 }

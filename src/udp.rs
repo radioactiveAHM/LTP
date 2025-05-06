@@ -1,6 +1,5 @@
 use std::{
     net::{IpAddr, SocketAddr},
-    str::FromStr,
     sync::Arc,
 };
 
@@ -11,18 +10,8 @@ use tokio::{
 
 type LiveConnections = Arc<Mutex<Vec<(tokio::sync::mpsc::Sender<Vec<u8>>, SocketAddr)>>>;
 
-pub async fn udp_listen_handler(port: u16, target: IpAddr, timeout_dur: u64, inbound: SocketAddr) {
-    println!("listening on {}", port);
-
-    let target_socket_addr_v = {
-        if target.is_ipv4() {
-            SocketAddr::from_str("0.0.0.0:0").unwrap()
-        } else if target.is_ipv6() {
-            SocketAddr::from_str("[::]:0").unwrap()
-        } else {
-            panic!("Invalid target address");
-        }
-    };
+pub async fn udp_listen_handler(target: IpAddr, timeout_dur: u64, inbound: SocketAddr) {
+    println!("UDP listening on {}", inbound);
 
     // panic if can't listen on the IP+Port
     // udp inbound
@@ -54,11 +43,11 @@ pub async fn udp_listen_handler(port: u16, target: IpAddr, timeout_dur: u64, inb
                 let udp = udp.clone();
                 let live = live.clone();
                 tokio::spawn(async move {
-                    let target_udp = tokio::net::UdpSocket::bind(target_socket_addr_v)
+                    let target_udp = tokio::net::UdpSocket::bind(SocketAddr::new(inbound.ip(), 0))
                         .await
                         .unwrap();
                     target_udp
-                        .connect(SocketAddr::new(target, port))
+                        .connect(SocketAddr::new(target, inbound.port()))
                         .await
                         .unwrap();
                     let mut buff = [0; 8196];

@@ -3,26 +3,12 @@ mod udp;
 mod tcp;
 
 use tokio::{net::TcpListener, time::timeout};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::{IpAddr, SocketAddr};
 
 #[tokio::main]
 async fn main() {
     let conf = config::load_config();
     let ports: Vec<u16> = conf.ports;
-
-    let ip = {
-        if conf.localhost {
-            (
-                Ipv4Addr::new(127, 0, 0, 1),
-                Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1),
-            )
-        } else {
-            (
-                Ipv4Addr::new(0, 0, 0, 0),
-                Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0),
-            )
-        }
-    };
 
     let mut tasks = Vec::new();
     // Generate tasks for tcp
@@ -32,23 +18,12 @@ async fn main() {
             listen_handler(
                 port,
                 conf.target,
-                SocketAddr::V4(SocketAddrV4::new(ip.0, port)),
-                conf.tcptimeout
+                SocketAddr::new(conf.listen_ip, port),
+                conf.tcptimeout,
+                conf.tcp_buffer_size.unwrap_or(1024*8)
             )
             .await;
         }));
-        // IPv6
-        if conf.ipv6 {
-            tasks.push(tokio::spawn(async move {
-                listen_handler(
-                    port,
-                    conf.target,
-                    SocketAddr::V6(SocketAddrV6::new(ip.1, port, 0, 0)),
-                    conf.tcptimeout
-                )
-                .await;
-            }));
-        }
     }
 
     // Generate tasks for udp
@@ -57,42 +32,29 @@ async fn main() {
         // IPv4
         tasks.push(tokio::spawn(async move {
             udp::udp_listen_handler(
-                port,
                 conf.target,
                 conf.udptimeout,
-                SocketAddr::V4(SocketAddrV4::new(ip.0, port)),
+                SocketAddr::new(conf.listen_ip, port),
             )
             .await;
         }));
-        // IPv6
-        if conf.ipv6 {
-            tasks.push(tokio::spawn(async move {
-                udp::udp_listen_handler(
-                    port,
-                    conf.target,
-                    conf.udptimeout,
-                    SocketAddr::V6(SocketAddrV6::new(ip.1, port, 0, 0)),
-                )
-                .await;
-            }));
-        }
     }
 
     for atask in tasks {
-        if atask.await.is_err() {
-            println!("Task Error");
+        if let Err(e) = atask.await {
+            println!("Task Error: {}", e);
         }
     }
 }
 
-async fn listen_handler(port: u16, target: IpAddr, inbound: SocketAddr, tm: u64) {
+async fn listen_handler(port: u16, target: IpAddr, inbound: SocketAddr, tm: u64, buf_size: usize) {
     let tcp = TcpListener::bind(inbound).await.unwrap();
 
     // accept streams
     loop {
         if let Ok(stream) = tcp.accept().await {
             tokio::spawn(async move {
-                if let Err(e) = stream_handler(port, target, stream.0, tm).await {
+                if let Err(e) = stream_handler(port, target, stream.0, tm, buf_size).await {
                     println!("{e}");
                 }
             });
@@ -104,12 +66,10 @@ async fn stream_handler(
     port: u16,
     target: IpAddr,
     mut stream: tokio::net::TcpStream,
-    tm: u64
+    tm: u64,
+    buf_size: usize
 ) -> Result<(), std::io::Error> {
     let mut target_stream = tokio::net::TcpStream::connect(SocketAddr::new(target, port)).await?;
-
-    let (mut server_r, server_w) = stream.split();
-    let (mut target_r, target_w) = target_stream.split();
 
     let (ch_snd, mut ch_rcv) = tokio::sync::mpsc::channel(1);
     let timeout_handler = async move {
@@ -131,20 +91,19 @@ async fn stream_handler(
         ))
     };
 
-    let mut tcpwriter_target = crate::tcp::TcpWriter {
-        hr: target_w,
+    let mut tcpwriter_target = crate::tcp::TcpBiGeneric {
+        io: std::pin::Pin::new(&mut target_stream),
         signal: ch_snd.clone(),
     };
 
-    let mut tcpwriter_server = crate::tcp::TcpWriter {
-        hr: server_w,
+    let mut tcpwriter_server = crate::tcp::TcpBiGeneric {
+        io: std::pin::Pin::new(&mut stream),
         signal: ch_snd,
     };
 
     tokio::try_join!(
         timeout_handler,
-        tokio::io::copy(&mut target_r, &mut tcpwriter_server),
-        tokio::io::copy(&mut server_r, &mut tcpwriter_target),
+        tokio::io::copy_bidirectional_with_sizes(&mut tcpwriter_server, &mut tcpwriter_target, buf_size, buf_size)
     )?;
     Ok(())
 }
