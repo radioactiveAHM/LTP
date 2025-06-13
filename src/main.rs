@@ -6,6 +6,31 @@ mod pipe;
 use tokio::{io::{AsyncWriteExt, ReadBuf}, net::TcpListener, time::timeout};
 use std::{net::{IpAddr, SocketAddr}, pin::Pin};
 
+trait PeekWraper {
+    async fn peek(&self) -> tokio::io::Result<()>;
+}
+impl PeekWraper for tokio::net::TcpStream {
+    async fn peek(&self) -> tokio::io::Result<()> {
+        let mut buf = [0; 2];
+        let mut wraper = ReadBuf::new(&mut buf);
+        std::future::poll_fn(|cx| match self.poll_peek(cx, &mut wraper) {
+            std::task::Poll::Pending => std::task::Poll::Ready(Ok(())),
+            std::task::Poll::Ready(Ok(size)) => {
+                if size == 0 {
+                    std::task::Poll::Ready(Err(tokio::io::Error::new(
+                        std::io::ErrorKind::ConnectionAborted,
+                        "Peek: ConnectionAborted",
+                    )))
+                } else {
+                    std::task::Poll::Ready(Ok(()))
+                }
+            }
+            std::task::Poll::Ready(Err(e)) => std::task::Poll::Ready(Err(e)),
+        })
+        .await
+    }
+}
+
 pub fn unsafe_staticref<'a, T: ?Sized>(r: &'a T) -> &'static T {
     unsafe { std::mem::transmute::<&'a T, &'static T>(r) }
 }
@@ -99,7 +124,7 @@ async fn stream_handler(
                 }
             };
             // check if connection is alive using peek
-            peek(stream_ghost).await?;
+            PeekWraper::peek(stream_ghost).await?;
         }
 
         Err::<(), tokio::io::Error>(tokio::io::Error::new(
@@ -131,24 +156,4 @@ async fn stream_handler(
         return Err(e);
     }
     Ok(())
-}
-
-async fn peek(peeker: &tokio::net::TcpStream) -> tokio::io::Result<()> {
-    let mut buf = [0; 2];
-    let mut wraper = ReadBuf::new(&mut buf);
-    std::future::poll_fn(|cx| match peeker.poll_peek(cx, &mut wraper) {
-        std::task::Poll::Pending => std::task::Poll::Ready(Ok(())),
-        std::task::Poll::Ready(Ok(size)) => {
-            if size == 0 {
-                std::task::Poll::Ready(Err(tokio::io::Error::new(
-                    std::io::ErrorKind::ConnectionAborted,
-                    "Peek: ConnectionAborted",
-                )))
-            } else {
-                std::task::Poll::Ready(Ok(()))
-            }
-        }
-        std::task::Poll::Ready(Err(e)) => std::task::Poll::Ready(Err(e)),
-    })
-    .await
 }

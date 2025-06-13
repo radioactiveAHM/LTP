@@ -40,7 +40,6 @@ pub async fn stack_copy<R, W>(r: R, w: &mut W, size: usize) -> tokio::io::Result
 #[inline(never)]
 async fn on_stack_1024<R, W>(r: R, w: &mut W) -> tokio::io::Result<()> where R: AsyncRead + Unpin, W: AsyncWriteExt + Unpin {
     let mut buf = vec![0; 1024*1024];
-    dbg!("meow");
     copy(r, w, &mut buf).await
 }
 
