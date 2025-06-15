@@ -4,7 +4,7 @@ mod tcp;
 mod pipe;
 
 use tokio::{io::{AsyncWriteExt, ReadBuf}, net::TcpListener, time::timeout};
-use std::{net::{IpAddr, SocketAddr}, pin::Pin};
+use std::{net::SocketAddr, pin::Pin};
 
 trait PeekWraper {
     async fn peek(&self) -> tokio::io::Result<()>;
@@ -38,68 +38,50 @@ pub fn unsafe_staticref<'a, T: ?Sized>(r: &'a T) -> &'static T {
 #[tokio::main]
 async fn main() {
     let conf = config::load_config();
-    let ports: Vec<u16> = conf.ports;
-
-    let mut tasks = Vec::new();
     // Generate tasks for tcp
-    for port in ports {
+    for target in conf.tcp_proxy {
         // IPv4
-        tasks.push(tokio::spawn(async move {
-            listen_handler(
-                port,
-                conf.target,
-                SocketAddr::new(conf.listen_ip, port),
-                conf.tcptimeout,
-                conf.tcp_buffer_size.unwrap_or(8)
-            )
-            .await;
-        }));
+        tokio::spawn(async move {
+            let listen = SocketAddr::new(conf.listen_ip, target.port());
+            println!("TCP listening on {} proxy to {}", listen, target);
+            let tcp = TcpListener::bind(listen).await.unwrap();
+            loop {
+                if let Ok(stream) = tcp.accept().await {
+                    let peer_addr = stream.1;
+                    tokio::spawn(async move {
+                        if let Err(e) = stream_handler(target, stream.0, conf.tcptimeout, conf.tcp_buffer_size.unwrap_or(8)).await {
+                            if conf.log_error {
+                                println!("TCP {peer_addr}: {e}");
+                            }
+                        }
+                    });
+                }
+            }
+        });
     }
 
     // Generate tasks for udp
-    let ports: Vec<u16> = conf.udp_ports;
-    for port in ports {
-        // IPv4
-        tasks.push(tokio::spawn(async move {
+    for target in conf.udp_proxy {
+        tokio::spawn(async move {
             udp::udp_listen_handler(
-                conf.target,
+                target.ip(),
                 conf.udptimeout,
-                SocketAddr::new(conf.listen_ip, port),
+                SocketAddr::new(conf.listen_ip, target.port()),
             )
             .await;
-        }));
+        });
     }
 
-    for atask in tasks {
-        if let Err(e) = atask.await {
-            println!("Task Error: {}", e);
-        }
-    }
-}
-
-async fn listen_handler(port: u16, target: IpAddr, inbound: SocketAddr, tm: u64, buf_size: usize) {
-    let tcp = TcpListener::bind(inbound).await.unwrap();
-
-    loop {
-        if let Ok(stream) = tcp.accept().await {
-            let peer_addr = stream.1;
-            tokio::spawn(async move {
-                if let Err(e) = stream_handler(port, target, stream.0, tm, buf_size).await {
-                    println!("TCP {peer_addr}: {e}");
-                }
-            });
-        }
-    }
+    std::future::pending::<()>().await
 }
 
 async fn stream_handler(
-    port: u16,
-    target: IpAddr,
+    target: SocketAddr,
     stream: tokio::net::TcpStream,
     tm: u64,
     buf_size: usize
 ) -> Result<(), std::io::Error> {
-    let target = tokio::net::TcpStream::connect(SocketAddr::new(target, port)).await?;
+    let target = tokio::net::TcpStream::connect(target).await?;
 
     let (ch_snd, mut ch_rcv) = tokio::sync::mpsc::channel(10);
     let stream_ghost = unsafe_staticref(&stream);

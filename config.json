@@ -1,9 +1,9 @@
 {
+	"log_error": false,
 	"listen_ip": "0.0.0.0",
-	"ports": [80],
-	"udp_ports": [],
-	"target": "199.212.90.191",
-	"udptimeout": 90,
-	"tcptimeout": 300,
+	"tcp_proxy": ["199.212.90.191:80"],
+	"udp_proxy": [],
+	"udptimeout": 60,
+	"tcptimeout": 150,
 	"tcp_buffer_size": null
 }
