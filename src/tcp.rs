@@ -1,8 +1,7 @@
 use std::pin::Pin;
 
 pub struct TcpWriterGeneric<'a, W> {
-    pub hr: Pin<&'a mut W>,
-    pub signal: tokio::sync::mpsc::Sender<()>,
+    pub hr: Pin<&'a mut W>
 }
 impl<W> tokio::io::AsyncWrite for TcpWriterGeneric<'_, W>
 where
@@ -13,7 +12,6 @@ where
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> std::task::Poll<Result<usize, std::io::Error>> {
-        let _ = self.signal.try_send(());
         self.hr.as_mut().poll_write(cx, buf)
     }
 

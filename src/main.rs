@@ -3,33 +3,9 @@ mod udp;
 mod tcp;
 mod pipe;
 
-use tokio::{io::{AsyncWriteExt, ReadBuf}, net::TcpListener, time::timeout};
+use tokio::{io::AsyncWriteExt, net::TcpListener};
 use std::{net::SocketAddr, pin::Pin};
 
-trait PeekWraper {
-    async fn peek(&self) -> tokio::io::Result<()>;
-}
-impl PeekWraper for tokio::net::TcpStream {
-    async fn peek(&self) -> tokio::io::Result<()> {
-        let mut buf = [0; 2];
-        let mut wraper = ReadBuf::new(&mut buf);
-        std::future::poll_fn(|cx| match self.poll_peek(cx, &mut wraper) {
-            std::task::Poll::Pending => std::task::Poll::Ready(Ok(())),
-            std::task::Poll::Ready(Ok(size)) => {
-                if size == 0 {
-                    std::task::Poll::Ready(Err(tokio::io::Error::new(
-                        std::io::ErrorKind::ConnectionAborted,
-                        "Peek: ConnectionAborted",
-                    )))
-                } else {
-                    std::task::Poll::Ready(Ok(()))
-                }
-            }
-            std::task::Poll::Ready(Err(e)) => std::task::Poll::Ready(Err(e)),
-        })
-        .await
-    }
-}
 
 pub fn unsafe_staticref<'a, T: ?Sized>(r: &'a T) -> &'static T {
     unsafe { std::mem::transmute::<&'a T, &'static T>(r) }
@@ -77,61 +53,26 @@ async fn main() {
 
 async fn stream_handler(
     target: SocketAddr,
-    stream: tokio::net::TcpStream,
+    mut stream: tokio::net::TcpStream,
     tm: u64,
     buf_size: usize
 ) -> Result<(), std::io::Error> {
-    let target = tokio::net::TcpStream::connect(target).await?;
+    let mut target = tokio::net::TcpStream::connect(target).await?;
 
-    let (ch_snd, mut ch_rcv) = tokio::sync::mpsc::channel(10);
-    let stream_ghost = unsafe_staticref(&stream);
-    let timeout_handler = async move {
-        let mut dur = 0;
-        loop {
-            if dur >= tm {
-                break;
-            }
-            // idle mode
-            match timeout(
-                std::time::Duration::from_secs(tm / 10),
-                async { ch_rcv.recv().await },
-            )
-            .await
-            {
-                Err(_) => dur += tm / 10,
-                Ok(None) => break,
-                _ => {
-                    dur = 0;
-                    continue;
-                }
-            };
-            // check if connection is alive using peek
-            PeekWraper::peek(stream_ghost).await?;
-        }
-
-        Err::<(), tokio::io::Error>(tokio::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "Connection idle timeout",
-        ))
-    };
-
-    let (client_read, mut client_write) = tokio::io::split(stream);
-    let (target_read, mut target_write) = tokio::io::split(target);
+    let (client_read, mut client_write) = stream.split();
+    let (target_read, mut target_write) = target.split();
 
     let mut tcpwriter_client = tcp::TcpWriterGeneric {
-        hr: Pin::new(&mut client_write),
-        signal: ch_snd.clone(),
+        hr: Pin::new(&mut client_write)
     };
 
     let mut tcpwriter_target = tcp::TcpWriterGeneric {
-        hr: Pin::new(&mut target_write),
-        signal: ch_snd,
+        hr: Pin::new(&mut target_write)
     };
     
     if let Err(e) = tokio::try_join!(
-        pipe::stack_copy(client_read, &mut tcpwriter_target, buf_size),
-        pipe::stack_copy(target_read, &mut tcpwriter_client, buf_size),
-        timeout_handler,
+        pipe::copy(client_read, &mut tcpwriter_target, buf_size, tm),
+        pipe::copy(target_read, &mut tcpwriter_client, buf_size, tm)
     ) {
         let _ = tcpwriter_target.shutdown().await;
         let _ = tcpwriter_client.shutdown().await;
