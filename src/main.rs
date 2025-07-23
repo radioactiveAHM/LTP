@@ -1,10 +1,9 @@
 mod config;
 mod udp;
-mod tcp;
 mod pipe;
 
 use tokio::{io::AsyncWriteExt, net::TcpListener};
-use std::{net::SocketAddr, pin::Pin};
+use std::net::SocketAddr;
 
 
 pub fn unsafe_staticref<'a, T: ?Sized>(r: &'a T) -> &'static T {
@@ -61,21 +60,13 @@ async fn stream_handler(
 
     let (client_read, mut client_write) = stream.split();
     let (target_read, mut target_write) = target.split();
-
-    let mut tcpwriter_client = tcp::TcpWriterGeneric {
-        hr: Pin::new(&mut client_write)
-    };
-
-    let mut tcpwriter_target = tcp::TcpWriterGeneric {
-        hr: Pin::new(&mut target_write)
-    };
     
     if let Err(e) = tokio::try_join!(
-        pipe::copy(client_read, &mut tcpwriter_target, buf_size, tm),
-        pipe::copy(target_read, &mut tcpwriter_client, buf_size, tm)
+        pipe::copy(client_read, &mut target_write, buf_size, tm),
+        pipe::copy(target_read, &mut client_write, buf_size, tm)
     ) {
-        let _ = tcpwriter_target.shutdown().await;
-        let _ = tcpwriter_client.shutdown().await;
+        let _ = client_write.shutdown().await;
+        let _ = target_write.shutdown().await;
         return Err(e);
     }
     Ok(())
