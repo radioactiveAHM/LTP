@@ -4,9 +4,11 @@ pub struct Configuration {
     pub listen_ip: std::net::IpAddr,
     pub tcp_proxy: Vec<std::net::SocketAddr>,
     pub udp_proxy: Vec<std::net::SocketAddr>,
-    pub udptimeout: u64,
     pub tcptimeout: u64,
-    pub tcp_buffer_size: Option<usize>
+    pub udptimeout: u64,
+    pub tcp_buffer_size: Option<usize>,
+    pub udp_buffer_size: Option<usize>,
+    pub udp_channel_buffer_size: usize,
 }
 
 pub fn load_config() -> Configuration {

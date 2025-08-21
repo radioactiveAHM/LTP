@@ -1,97 +1,104 @@
 use std::{
-    net::{IpAddr, SocketAddr},
+    collections::HashMap,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::Arc,
 };
 
-use tokio::{
-    sync::{mpsc::channel, Mutex},
-    time::timeout,
-};
+use tokio::{sync::Mutex, time::timeout};
 
-type LiveConnections = Arc<Mutex<Vec<(tokio::sync::mpsc::Sender<Vec<u8>>, SocketAddr)>>>;
+type LiveConnections = Arc<Mutex<HashMap<SocketAddr, tokio::sync::mpsc::Sender<Vec<u8>>>>>;
 
-pub async fn udp_listen_handler(target: IpAddr, timeout_dur: u64, inbound: SocketAddr) {
+pub async fn udp_listen_handler(
+    target: IpAddr,
+    timeout_dur: u64,
+    inbound: SocketAddr,
+    log_error: bool,
+    buf_size: usize,
+    udp_channel_buffer_size: usize,
+) {
+    let udp = Arc::new(tokio::net::UdpSocket::bind(inbound).await.unwrap());
     println!("UDP listening on {}", inbound);
 
-    // panic if can't listen on the IP+Port
-    // udp inbound
-    let udp = Arc::new(tokio::net::UdpSocket::bind(inbound).await.unwrap());
-
-    // list of live connections
-    let live: LiveConnections = Arc::new(Mutex::new(Vec::with_capacity(5)));
+    let live: LiveConnections = Arc::new(Mutex::new(HashMap::new()));
     // accept udp datagram
-    let mut buff = [0; 8196];
+    let mut buff = vec![0; buf_size * 1024];
     loop {
         if let Ok((datagram_len, addr)) = udp.recv_from(&mut buff).await {
-            // check if addr is in live list and get it.
-            let ch = live.lock().await.iter().find_map(|conn| {
-                if conn.1 == addr {
-                    Some(conn.0.clone())
-                } else {
-                    None
-                }
-            });
-
-            // if addr is in live
-            if ch.is_some() {
-                let _ = ch.unwrap().send(buff[..datagram_len].to_owned()).await;
+            if let Some(ch) = live.lock().await.get(&addr) {
+                let _ = ch.send(buff[..datagram_len].to_owned()).await;
             } else {
-                // if addr is not in live
-                let (ch_snd, mut ch_rcv) = channel(1);
-                live.lock().await.push((ch_snd.clone(), addr));
+                let (ch_snd, mut ch_rcv) = tokio::sync::mpsc::channel(udp_channel_buffer_size);
+                let _ = ch_snd.send(buff[..datagram_len].to_owned()).await;
+                live.lock().await.insert(addr, ch_snd);
 
                 let udp = udp.clone();
                 let live = live.clone();
                 tokio::spawn(async move {
-                    let target_udp = tokio::net::UdpSocket::bind(SocketAddr::new(inbound.ip(), 0))
+                    let target_udp = tokio::net::UdpSocket::bind(get_unspecified(&target))
                         .await
                         .unwrap();
                     target_udp
                         .connect(SocketAddr::new(target, inbound.port()))
                         .await
                         .unwrap();
-                    let mut buff = [0; 8196];
+                    let mut buff = vec![0; buf_size * 1024];
                     loop {
-                        let tm = timeout(std::time::Duration::from_secs(timeout_dur), async {
+                        match timeout(std::time::Duration::from_secs(timeout_dur), async {
                             tokio::select! {
-                                ch_inbound = ch_rcv.recv() => {
-                                    if let Some(dgram)=ch_inbound{
-                                        target_udp.send(&dgram).await
-                                    }else {
-                                        Err(std::io::Error::from(std::io::ErrorKind::ConnectionAborted))
-                                    }
+                                ch_inbound = channel_recv(&mut ch_rcv, &target_udp) => {
+                                    ch_inbound
                                 },
 
                                 udp_inbound = target_udp.recv(&mut buff) => {
-                                    if let Ok(dgram_len)=udp_inbound{
-                                        udp.send_to(&buff[..dgram_len], addr).await
-                                    }else {
-                                        Err(std::io::Error::from(std::io::ErrorKind::ConnectionAborted))
+                                    match udp_inbound {
+                                        Ok(dgram_len)=> udp.send_to(&buff[..dgram_len], addr).await,
+                                        Err(e) => Err(e)
                                     }
                                 }
                             }
-                        }).await;
-
-                        if tm.is_err() {
-                            // Connection timeout
-                            let mut live_lock = live.lock().await;
-                            if let Some(index) = live_lock.iter().position(|conn| conn.1 == addr) {
-                                live_lock.swap_remove(index);
+                        })
+                        .await
+                        {
+                            Err(_) => {
+                                // Connection timeout
+                                if log_error && let Ok(local_addr) = target_udp.local_addr() {
+                                    println!("UDP {}: IdleTimeout", local_addr);
+                                }
+                                live.lock().await.remove(&addr);
+                                break;
                             }
-                            break;
-                        } else if tm.unwrap().is_err() {
-                            // Connection closed
-                            let mut live_lock = live.lock().await;
-                            if let Some(index) = live_lock.iter().position(|conn| conn.1 == addr) {
-                                live_lock.swap_remove(index);
+                            Ok(Err(e)) => {
+                                // Connection error
+                                if log_error && let Ok(local_addr) = target_udp.local_addr() {
+                                    println!("UDP {}: {e}", local_addr);
+                                }
+                                live.lock().await.remove(&addr);
+                                break;
                             }
-                            break;
-                        }
+                            _ => (),
+                        };
                     }
                 });
-
-                let _ = ch_snd.send(buff[..datagram_len].to_owned()).await;
             }
         }
+    }
+}
+
+fn get_unspecified(addr: &IpAddr) -> SocketAddr {
+    if addr.is_ipv4() {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
+    } else {
+        SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
+    }
+}
+
+async fn channel_recv(
+    r: &mut tokio::sync::mpsc::Receiver<Vec<u8>>,
+    udp: &tokio::net::UdpSocket,
+) -> tokio::io::Result<usize> {
+    if let Some(dgram) = r.recv().await {
+        Ok(udp.send(&dgram).await?)
+    } else {
+        Err(tokio::io::Error::other("Channel closed"))
     }
 }

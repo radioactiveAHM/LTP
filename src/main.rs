@@ -1,14 +1,9 @@
 mod config;
-mod udp;
 mod pipe;
+mod udp;
 
-use tokio::{io::AsyncWriteExt, net::TcpListener};
 use std::net::SocketAddr;
-
-
-pub fn unsafe_staticref<'a, T: ?Sized>(r: &'a T) -> &'static T {
-    unsafe { std::mem::transmute::<&'a T, &'static T>(r) }
-}
+use tokio::{io::AsyncWriteExt, net::TcpListener};
 
 #[tokio::main]
 async fn main() {
@@ -24,10 +19,16 @@ async fn main() {
                 if let Ok(stream) = tcp.accept().await {
                     let peer_addr = stream.1;
                     tokio::spawn(async move {
-                        if let Err(e) = stream_handler(target, stream.0, conf.tcptimeout, conf.tcp_buffer_size.unwrap_or(8)).await {
-                            if conf.log_error {
-                                println!("TCP {peer_addr}: {e}");
-                            }
+                        if let Err(e) = stream_handler(
+                            target,
+                            stream.0,
+                            conf.tcptimeout,
+                            conf.tcp_buffer_size.unwrap_or(8),
+                        )
+                        .await
+                            && conf.log_error
+                        {
+                            println!("TCP {peer_addr}: {e}");
                         }
                     });
                 }
@@ -42,6 +43,9 @@ async fn main() {
                 target.ip(),
                 conf.udptimeout,
                 SocketAddr::new(conf.listen_ip, target.port()),
+                conf.log_error,
+                conf.udp_buffer_size.unwrap_or(8),
+                conf.udp_channel_buffer_size,
             )
             .await;
         });
@@ -54,13 +58,13 @@ async fn stream_handler(
     target: SocketAddr,
     mut stream: tokio::net::TcpStream,
     tm: u64,
-    buf_size: usize
+    buf_size: usize,
 ) -> Result<(), std::io::Error> {
     let mut target = tokio::net::TcpStream::connect(target).await?;
 
     let (client_read, mut client_write) = stream.split();
     let (target_read, mut target_write) = target.split();
-    
+
     if let Err(e) = tokio::try_join!(
         pipe::copy(client_read, &mut target_write, buf_size, tm),
         pipe::copy(target_read, &mut client_write, buf_size, tm)
