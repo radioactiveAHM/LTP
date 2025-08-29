@@ -6,6 +6,7 @@ pub struct Configuration {
     pub udp_proxy: Vec<std::net::SocketAddr>,
     pub tcptimeout: u64,
     pub udptimeout: u64,
+    pub tcp_fill_buffer: bool,
     pub tcp_buffer_size: Option<usize>,
     pub udp_buffer_size: Option<usize>,
     pub udp_channel_buffer_size: usize,

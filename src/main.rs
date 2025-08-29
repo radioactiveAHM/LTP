@@ -5,7 +5,7 @@ mod udp;
 use std::net::SocketAddr;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() {
     let conf = config::load_config();
     // Generate tasks for tcp
@@ -24,6 +24,7 @@ async fn main() {
                             stream.0,
                             conf.tcptimeout,
                             conf.tcp_buffer_size.unwrap_or(8),
+                            conf.tcp_fill_buffer,
                         )
                         .await
                             && conf.log_error
@@ -59,19 +60,40 @@ async fn stream_handler(
     mut stream: tokio::net::TcpStream,
     tm: u64,
     buf_size: usize,
+    fill_buf: bool,
 ) -> Result<(), std::io::Error> {
     let mut target = tokio::net::TcpStream::connect(target).await?;
 
-    let (client_read, mut client_write) = stream.split();
-    let (target_read, mut target_write) = target.split();
+    let (mut client_read, mut client_write) = stream.split();
+    let (mut target_read, mut target_write) = target.split();
 
-    if let Err(e) = tokio::try_join!(
-        pipe::copy(client_read, &mut target_write, buf_size, tm),
-        pipe::copy(target_read, &mut client_write, buf_size, tm)
-    ) {
-        let _ = client_write.shutdown().await;
-        let _ = target_write.shutdown().await;
-        return Err(e);
+    let err: tokio::io::Error;
+    loop {
+        let operation = tokio::time::timeout(std::time::Duration::from_secs(tm), async {
+            tokio::select! {
+                piping = pipe::copy(&mut client_read, &mut target_write, buf_size, fill_buf) => {
+                    piping
+                },
+                piping = pipe::copy(&mut target_read, &mut client_write, buf_size, fill_buf) => {
+                    piping
+                },
+            }
+        })
+        .await;
+
+        match operation {
+            Err(_) => {
+                err = tokio::io::Error::other("Timeout");
+                break;
+            }
+            Ok(Err(e)) => {
+                err = e;
+                break;
+            }
+            _ => (),
+        }
     }
-    Ok(())
+    let _ = stream.shutdown().await;
+    let _ = target.shutdown().await;
+    Err(err)
 }

@@ -5,6 +5,7 @@
 	"udp_proxy": [],
 	"udptimeout": 120,
 	"tcptimeout": 300,
+	"tcp_fill_buffer": false,
 	"tcp_buffer_size": null,
 	"udp_buffer_size": null,
 	"udp_channel_buffer_size": 12
