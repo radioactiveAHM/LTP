@@ -41,11 +41,14 @@
 {
  "log_error": false,
  "listen_ip": "0.0.0.0",
- "tcp_proxy": ["199.212.90.191:80"],
+ "tcp_proxy": ["1.1.1.1:443"],
  "udp_proxy": [],
- "udptimeout": 60,
- "tcptimeout": 150,
- "tcp_buffer_size": null
+ "udptimeout": 120,
+ "tcptimeout": 300,
+ "tcp_fill_buffer": false,
+ "tcp_buffer_size": null,
+ "udp_buffer_size": null,
+ "udp_channel_buffer_size": 12
 }
 ```
 

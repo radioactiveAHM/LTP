@@ -4,41 +4,36 @@ use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
 pub async fn copy<R, W>(
     mut r: R,
     w: &mut W,
-    buff_size: usize,
+    buf: &mut ReadBuf<'_>,
     fill_buf: bool,
 ) -> tokio::io::Result<()>
 where
     R: AsyncRead + Unpin,
     W: AsyncWriteExt + Unpin,
 {
-    let mut buf = vec![0; 1024 * buff_size];
     let mut pinned: std::pin::Pin<&mut R> = std::pin::Pin::new(&mut r);
-    let mut wrapper: ReadBuf<'_> = ReadBuf::new(&mut buf);
-    loop {
-        tokio::task::yield_now().await;
-        if fill_buf {
-            fill(&mut pinned, &mut wrapper).await?;
-        } else {
-            read(&mut pinned, &mut wrapper).await?;
-        }
-        let _ = w.write(wrapper.filled()).await?;
-        let _ = w.flush().await;
-        wrapper.clear();
+    if fill_buf {
+        fill(&mut pinned, buf).await?;
+    } else {
+        read(&mut pinned, buf).await?;
     }
+    let _ = w.write(buf.filled()).await?;
+    buf.clear();
+    Ok(())
 }
 
 #[inline(always)]
 pub async fn read<R>(
     pinned: &mut std::pin::Pin<&mut R>,
-    wrapper: &mut ReadBuf<'_>,
+    buf: &mut ReadBuf<'_>,
 ) -> tokio::io::Result<()>
 where
     R: AsyncRead + Unpin,
 {
-    std::future::poll_fn(|cx| match pinned.as_mut().poll_read(cx, wrapper) {
+    std::future::poll_fn(|cx| match pinned.as_mut().poll_read(cx, buf) {
         std::task::Poll::Pending => std::task::Poll::Pending,
         std::task::Poll::Ready(Ok(_)) => {
-            if wrapper.filled().is_empty() {
+            if buf.filled().is_empty() {
                 std::task::Poll::Ready(Err(tokio::io::Error::other("Pipe read EOF")))
             } else {
                 std::task::Poll::Ready(Ok(()))
@@ -52,16 +47,16 @@ where
 #[inline(always)]
 pub async fn fill<R>(
     pinned: &mut std::pin::Pin<&mut R>,
-    wrapper: &mut ReadBuf<'_>,
+    buf: &mut ReadBuf<'_>,
 ) -> tokio::io::Result<()>
 where
     R: AsyncRead + Unpin,
 {
     loop {
         tokio::task::yield_now().await;
-        if std::future::poll_fn(|cx| match pinned.as_mut().poll_read(cx, wrapper) {
+        if std::future::poll_fn(|cx| match pinned.as_mut().poll_read(cx, buf) {
             std::task::Poll::Pending => {
-                if wrapper.filled().is_empty() {
+                if buf.filled().is_empty() {
                     std::task::Poll::Pending
                 } else {
                     // nothing to read anymore
@@ -69,9 +64,9 @@ where
                 }
             }
             std::task::Poll::Ready(Ok(_)) => {
-                if wrapper.filled().is_empty() {
+                if buf.filled().is_empty() {
                     std::task::Poll::Ready(Err(tokio::io::Error::other("EOF")))
-                } else if wrapper.remaining() == 0 {
+                } else if buf.remaining() == 0 {
                     // buf full
                     std::task::Poll::Ready(Ok(true))
                 } else {

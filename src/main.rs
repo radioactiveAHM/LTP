@@ -64,6 +64,11 @@ async fn stream_handler(
 ) -> Result<(), std::io::Error> {
     let mut target = tokio::net::TcpStream::connect(target).await?;
 
+    let mut client_buf = vec![0; 1024 * buf_size];
+    let mut client_buf_rb = tokio::io::ReadBuf::new(&mut client_buf);
+    let mut target_buf = vec![0; 1024 * buf_size];
+    let mut target_buf_rb = tokio::io::ReadBuf::new(&mut target_buf);
+
     let (mut client_read, mut client_write) = stream.split();
     let (mut target_read, mut target_write) = target.split();
 
@@ -71,10 +76,10 @@ async fn stream_handler(
     loop {
         let operation = tokio::time::timeout(std::time::Duration::from_secs(tm), async {
             tokio::select! {
-                piping = pipe::copy(&mut client_read, &mut target_write, buf_size, fill_buf) => {
+                piping = pipe::copy(&mut client_read, &mut target_write, &mut client_buf_rb, fill_buf) => {
                     piping
                 },
-                piping = pipe::copy(&mut target_read, &mut client_write, buf_size, fill_buf) => {
+                piping = pipe::copy(&mut target_read, &mut client_write, &mut target_buf_rb, fill_buf) => {
                     piping
                 },
             }
