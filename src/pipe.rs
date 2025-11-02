@@ -2,8 +2,8 @@ use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
 
 #[inline(always)]
 pub async fn copy<R, W>(
-    mut r: R,
-    w: &mut W,
+    r: &mut std::pin::Pin<&mut R>,
+    w: &mut std::pin::Pin<&mut W>,
     buf: &mut ReadBuf<'_>,
     fill_buf: bool,
 ) -> tokio::io::Result<()>
@@ -11,26 +11,38 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWriteExt + Unpin,
 {
-    let mut pinned: std::pin::Pin<&mut R> = std::pin::Pin::new(&mut r);
     if fill_buf {
-        fill(&mut pinned, buf).await?;
+        fill(r, buf).await?;
     } else {
-        read(&mut pinned, buf).await?;
+        read(r, buf).await?;
     }
-    let _ = w.write(buf.filled()).await?;
+    let _ = Write(w, buf.filled()).await;
     buf.clear();
     Ok(())
 }
 
+pub struct Write<'a, 'b, W>(pub &'a mut std::pin::Pin<&'b mut W>, pub &'a [u8]);
+impl<'a, 'b, W> Future for Write<'a, 'b, W>
+where
+    W: AsyncWriteExt + Unpin,
+{
+    type Output = tokio::io::Result<usize>;
+    #[inline(always)]
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let this = unsafe { self.get_unchecked_mut() };
+        this.0.as_mut().poll_write(cx, this.1)
+    }
+}
+
 #[inline(always)]
-pub async fn read<R>(
-    pinned: &mut std::pin::Pin<&mut R>,
-    buf: &mut ReadBuf<'_>,
-) -> tokio::io::Result<()>
+pub async fn read<R>(r: &mut std::pin::Pin<&mut R>, buf: &mut ReadBuf<'_>) -> tokio::io::Result<()>
 where
     R: AsyncRead + Unpin,
 {
-    std::future::poll_fn(|cx| match pinned.as_mut().poll_read(cx, buf) {
+    std::future::poll_fn(|cx| match r.as_mut().poll_read(cx, buf) {
         std::task::Poll::Pending => std::task::Poll::Pending,
         std::task::Poll::Ready(Ok(_)) => {
             if buf.filled().is_empty() {
@@ -45,16 +57,12 @@ where
 }
 
 #[inline(always)]
-pub async fn fill<R>(
-    pinned: &mut std::pin::Pin<&mut R>,
-    buf: &mut ReadBuf<'_>,
-) -> tokio::io::Result<()>
+pub async fn fill<R>(r: &mut std::pin::Pin<&mut R>, buf: &mut ReadBuf<'_>) -> tokio::io::Result<()>
 where
     R: AsyncRead + Unpin,
 {
     loop {
-        tokio::task::yield_now().await;
-        if std::future::poll_fn(|cx| match pinned.as_mut().poll_read(cx, buf) {
+        if std::future::poll_fn(|cx| match r.as_mut().poll_read(cx, buf) {
             std::task::Poll::Pending => {
                 if buf.filled().is_empty() {
                     std::task::Poll::Pending

@@ -69,17 +69,22 @@ async fn stream_handler(
     let mut target_buf = vec![0; 1024 * buf_size];
     let mut target_buf_rb = tokio::io::ReadBuf::new(&mut target_buf);
 
-    let (mut client_read, mut client_write) = stream.split();
-    let (mut target_read, mut target_write) = target.split();
+    let (mut client_r, mut client_w) = stream.split();
+    let (mut target_r, mut target_w) = target.split();
+
+    let mut client_r_pin = std::pin::Pin::new(&mut client_r);
+    let mut client_w_pin = std::pin::Pin::new(&mut client_w);
+    let mut target_r_pin = std::pin::Pin::new(&mut target_r);
+    let mut target_w_pin = std::pin::Pin::new(&mut target_w);
 
     let err: tokio::io::Error;
     loop {
         let operation = tokio::time::timeout(std::time::Duration::from_secs(tm), async {
             tokio::select! {
-                piping = pipe::copy(&mut client_read, &mut target_write, &mut client_buf_rb, fill_buf) => {
+                piping = pipe::copy(&mut client_r_pin, &mut target_w_pin, &mut client_buf_rb, fill_buf) => {
                     piping
                 },
-                piping = pipe::copy(&mut target_read, &mut client_write, &mut target_buf_rb, fill_buf) => {
+                piping = pipe::copy(&mut target_r_pin, &mut client_w_pin, &mut target_buf_rb, fill_buf) => {
                     piping
                 },
             }
