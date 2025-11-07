@@ -14,12 +14,12 @@ where
     if fill_buf {
         let res = Fill(r, buf).await;
         if !buf.filled().is_empty() {
-            let _ = Write(w, buf.filled()).await;
+            Write(w, buf.filled()).await?;
         }
         res?;
     } else {
         Read(r, buf).await?;
-        let _ = Write(w, buf.filled()).await;
+        Write(w, buf.filled()).await?;
     }
     buf.clear();
     Ok(())
@@ -59,23 +59,26 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         let this = &mut *self;
+        let mut filled = 0;
         loop {
             match this.0.as_mut().poll_read(cx, this.1) {
                 std::task::Poll::Pending => {
-                    if this.1.filled().is_empty() {
+                    if filled == 0 {
                         return std::task::Poll::Pending;
                     } else {
                         return std::task::Poll::Ready(Ok(()));
                     }
                 }
                 std::task::Poll::Ready(Ok(_)) => {
-                    if this.1.filled().is_empty() {
+                    let fill = this.1.filled().len();
+                    if fill == 0 || filled == fill {
                         return std::task::Poll::Ready(Err(tokio::io::Error::other(
                             "Pipe read EOF",
                         )));
                     } else if this.1.remaining() == 0 {
                         return std::task::Poll::Ready(Ok(()));
                     }
+                    filled = fill;
                 }
                 std::task::Poll::Ready(Err(e)) => return std::task::Poll::Ready(Err(e)),
             };
