@@ -1,6 +1,6 @@
 [package]
 name = "LTP"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 license = "Apache-2.0"
 description = "Lazy Tcp Port-Forwarding."
@@ -9,7 +9,7 @@ repository = "https://github.com/radioactiveAHM/LTP"
 categories = ["network-programming"]
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util", "time", "sync"] }
+tokio = { version = "1", features = ["rt", "net", "macros", "io-util", "time", "sync"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

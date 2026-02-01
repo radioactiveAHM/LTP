@@ -5,7 +5,7 @@ mod udp;
 use std::net::SocketAddr;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 
-#[tokio::main(flavor = "multi_thread")]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let conf = config::load_config();
     // Generate tasks for tcp
@@ -73,34 +73,56 @@ async fn stream_handler(
     let (mut target_r, mut target_w) = target.split();
 
     let mut client_r_pin = std::pin::Pin::new(&mut client_r);
-    let mut client_w_pin = std::pin::Pin::new(&mut client_w);
     let mut target_r_pin = std::pin::Pin::new(&mut target_r);
-    let mut target_w_pin = std::pin::Pin::new(&mut target_w);
 
     let err: tokio::io::Error;
-    loop {
-        let operation = tokio::time::timeout(std::time::Duration::from_secs(tm), async {
-            tokio::select! {
-                piping = pipe::copy(&mut client_r_pin, &mut target_w_pin, &mut client_buf_rb, fill_buf) => {
-                    piping
-                },
-                piping = pipe::copy(&mut target_r_pin, &mut client_w_pin, &mut target_buf_rb, fill_buf) => {
-                    piping
-                },
-            }
-        })
-        .await;
+    {
+        loop {
+            let operation = if fill_buf {
+                tokio::time::timeout(std::time::Duration::from_secs(tm), async {
+                    tokio::select! {
+                        read = pipe::Fill(&mut client_r_pin, &mut client_buf_rb) => {
+                            if !client_buf_rb.filled().is_empty() {
+                                target_w.write_all(client_buf_rb.filled()).await?;
+                            }
+                            read
+                        }
+                        read = pipe::Fill(&mut target_r_pin, &mut target_buf_rb) => {
+                            if !target_buf_rb.filled().is_empty() {
+                                client_w.write_all(target_buf_rb.filled()).await?;
+                            }
+                            read
+                        }
+                    }
+                })
+                .await
+            } else {
+                tokio::time::timeout(std::time::Duration::from_secs(tm), async {
+                    tokio::select! {
+                        read = pipe::Read(&mut client_r_pin, &mut client_buf_rb) => {
+                            read?;
+                            target_w.write_all(client_buf_rb.filled()).await
+                        }
+                        read = pipe::Read(&mut target_r_pin, &mut target_buf_rb) => {
+                            read?;
+                            client_w.write_all(target_buf_rb.filled()).await
+                        }
+                    }
+                })
+                .await
+            };
 
-        match operation {
-            Err(_) => {
-                err = tokio::io::Error::other("Timeout");
-                break;
+            match operation {
+                Err(_) => {
+                    err = tokio::io::Error::other("Timeout");
+                    break;
+                }
+                Ok(Err(e)) => {
+                    err = e;
+                    break;
+                }
+                _ => (),
             }
-            Ok(Err(e)) => {
-                err = e;
-                break;
-            }
-            _ => (),
         }
     }
     let _ = stream.shutdown().await;
